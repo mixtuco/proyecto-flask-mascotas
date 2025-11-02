@@ -2,7 +2,7 @@
 {% block title %}Mi Historial - App Mascotas{% endblock %}
 
 {% block content %}
-
+<div class="max-w-7xl mx-auto">
     <h1 class="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500 mb-10 pb-2">
         Mi Historial de Reportes
     </h1>
@@ -64,6 +64,9 @@
                     <strong>Datos Foto:</strong> {{ reporte.fecha_foto or 'N/A' }} 
                     <span class="text-gray-400">{{ reporte.modelo_celular or '' }}</span>
                 </div>
+                <div class="text-sm text-gray-400 mt-2 truncate" title="{{ reporte.imagen_hash }}">
+                    <strong>Hash:</strong> {{ reporte.imagen_hash or 'N/A' }}
+                </div>
             </div>
         </div>
         {% endfor %}
@@ -72,8 +75,7 @@
             <p class="text-gray-500 col-span-3 text-center text-lg">Aún no has creado ningún reporte.</p>
         {% endif %}
         
-    </div>
-
+    </div> </div>
 {% endblock %}
 
 {% block scripts %}{% endblock %}

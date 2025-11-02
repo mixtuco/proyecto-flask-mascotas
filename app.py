@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify # --- ¡NUEVO! import jsonify ---
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 from flask_sqlalchemy import SQLAlchemy
@@ -12,8 +12,9 @@ from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
+import imagehash 
 
-load_dotenv() # Carga el archivo .env
+load_dotenv()
 
 # --- Configuración (sin cambios) ---
 app = Flask(__name__)
@@ -54,7 +55,7 @@ oauth.register(
     jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
 )
 
-# --- Modelos de Usuario y Reporte (sin cambios) ---
+# --- Modelos de Usuario y Reporte (CON HASH) ---
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150), unique=True, nullable=False)
@@ -64,6 +65,7 @@ class User(db.Model, UserMixin):
 class Reporte(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    imagen_hash = db.Column(db.String(100), unique=True, nullable=True) # ¡Columna de huella digital!
     fecha_reporte = db.Column(db.DateTime, default=datetime.utcnow)
     estado = db.Column(db.String(50), nullable=False, default="Encontrado")
     latitud = db.Column(db.Float, nullable=True)
@@ -165,20 +167,26 @@ def authorize_google():
     else:
         return redirect(url_for('index'))
 
-# --- Funciones de IA y Distancia (sin cambios) ---
+# --- Funciones de IA y Distancia ---
 def obtener_metadatos_gps(imagen_path):
     # (Toda la función es igual)
     try:
         img = Image.open(imagen_path)
         exif_data_raw = img._getexif()
         if not exif_data_raw: return {"Error": "No se encontraron datos EXIF."}
-        # ... (resto del código igual)
+        exif_data = {}
+        for tag, value in exif_data_raw.items():
+            tag_nombre = TAGS.get(tag, tag)
+            exif_data[tag_nombre] = value
         fecha_hora = exif_data.get("DateTimeOriginal", None)
         modelo = f"{exif_data.get('Make', '')} {exif_data.get('Model', '')}".strip()
         gps_info_raw = exif_data.get("GPSInfo")
         lat_decimal, lon_decimal = None, None
         if gps_info_raw:
-            # ... (resto del código igual)
+            gps_data = {}
+            for tag, value in gps_info_raw.items():
+                tag_nombre = GPSTAGS.get(tag, tag)
+                gps_data[tag_nombre] = value
             lat = gps_data.get('GPSLatitude')
             lon = gps_data.get('GPSLongitude')
             if lat and lon:
@@ -290,34 +298,29 @@ def historial():
     reportes = Reporte.query.filter_by(user_id=current_user.id).order_by(Reporte.fecha_reporte.desc()).all()
     return render_template('historial.html', reportes=reportes)
 
-# --- ¡NUEVA RUTA PÚBLICA /EXPLORAR! ---
+# --- Ruta Pública /explorar (sin cambios) ---
 @app.route('/explorar')
 def explorar():
-    # Cargamos solo la Página 1, con 9 reportes por página
     page = request.args.get('page', 1, type=int)
     reportes_paginados = Reporte.query.order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
     )
-    # Usaremos un NUEVO template llamado 'explorar.html'
     return render_template('explorar.html', reportes=reportes_paginados)
 
-
-# --- ¡NUEVA RUTA DE API PARA CARGAR MÁS! ---
+# --- API /cargar-mas (¡MODIFICADA!) ---
 @app.route('/cargar-mas/<int:page>')
 def cargar_mas(page):
-    # Obtenemos la siguiente página de reportes
     reportes = Reporte.query.order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
     )
-    
     reportes_json = []
-    # Convertimos los reportes a un formato JSON que JavaScript entienda
     for reporte in reportes.items:
         reporte_data = {
             "id": reporte.id,
             "estado": reporte.estado,
             "descripcion": reporte.descripcion or 'Sin descripción.',
             "imagen_url": url_for('static', filename='uploads/' + reporte.imagen_url) if reporte.imagen_url else None,
+            "imagen_hash": reporte.imagen_hash or 'N/A', # --- ¡NUEVO! Añadimos el hash a la API
             "ia_especie": reporte.ia_especie or 'N/A',
             "ia_raza": reporte.ia_raza or 'N/A',
             "ia_color_principal": reporte.ia_color_principal or 'N/A',
@@ -329,14 +332,12 @@ def cargar_mas(page):
             "modelo_celular": reporte.modelo_celular or ''
         }
         reportes_json.append(reporte_data)
-        
     return jsonify(
         reportes=reportes_json,
-        has_next=reportes.has_next # Le decimos al JS si hay más páginas
+        has_next=reportes.has_next
     )
 
-
-# --- Ruta /validar-foto (sin cambios) ---
+# --- Ruta /validar-foto (¡MODIFICADA!) ---
 @app.route('/validar-foto', methods=['POST'])
 def validar_foto():
     if 'foto' not in request.files:
@@ -346,33 +347,68 @@ def validar_foto():
     if archivo.filename == '':
         flash('No se seleccionó ningún archivo.', 'error')
         return redirect(url_for('index'))
+
+    # 1. Guardar foto temporalmente
     ext = os.path.splitext(archivo.filename)[1]
     unique_name = str(uuid.uuid4()) + ext
     temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
     archivo.save(temp_filepath)
+    
+    # 2. Analizar foto con IA
     print(f"Validando foto: {temp_filepath}")
     ia_tags = analizar_foto_con_ia(temp_filepath)
     es_mascota_valida = ia_tags.get('es_mascota') == 'Si'
+    
+    # 3. Lógica de aprobación/rechazo
     if es_mascota_valida:
-        print("Foto aprobada por IA. Pidiendo login.")
-        session['foto_pendiente'] = unique_name
-        session['foto_tags'] = ia_tags
-        return redirect(url_for('completar_reporte'))
+        # ¡APROBADA!
+        print("Foto aprobada por IA. Generando huella digital...")
+        
+        # --- ¡NUEVO! Generar y verificar huella digital ---
+        try:
+            img_hash = str(imagehash.average_hash(Image.open(temp_filepath)))
+            
+            # Buscamos si el hash ya existe en la BBDD
+            reporte_existente = Reporte.query.filter_by(imagen_hash=img_hash).first()
+            
+            if reporte_existente:
+                # ¡DUPLICADO! Rechazar foto.
+                print(f"Foto duplicada. Coincide con el Reporte ID: {reporte_existente.id}")
+                os.remove(temp_filepath)
+                flash(f"Error: Esta foto ya fue subida en el Reporte ID #{reporte_existente.id}.", "error")
+                return redirect(url_for('index'))
+
+            # Si no es duplicado, guardamos todo en la sesión
+            print("Foto única. Pidiendo login.")
+            session['foto_pendiente'] = unique_name
+            session['foto_tags'] = ia_tags
+            session['foto_hash'] = img_hash # ¡Guardamos el hash!
+            return redirect(url_for('completar_reporte'))
+
+        except Exception as e:
+            print(f"Error generando el hash o validando: {e}")
+            os.remove(temp_filepath)
+            flash("Error al procesar la imagen. Inténtalo de nuevo.", "error")
+            return redirect(url_for('index'))
+            
     else:
+        # ¡RECHAZADA! Borrar foto y mostrar error
         print("Foto rechazada por IA. Borrando.")
         os.remove(temp_filepath)
         flash('Error: La foto fue rechazada. Asegúrate de que sea una foto "amateur" de una mascota (no un comercial, dibujo o meme).', 'error')
         return redirect(url_for('index'))
 
-# --- Ruta /completar-reporte (sin cambios) ---
+# --- Ruta /completar-reporte (¡MODIFICADA!) ---
 @app.route('/completar-reporte', methods=['GET', 'POST'])
 @login_required 
 def completar_reporte():
-    if 'foto_pendiente' not in session or 'foto_tags' not in session:
-        flash('Error: Debes subir una foto primero.', 'error')
+    if 'foto_pendiente' not in session or 'foto_tags' not in session or 'foto_hash' not in session:
+        flash('Error de sesión. Debes subir una foto primero.', 'error')
         return redirect(url_for('index'))
     temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], session['foto_pendiente'])
     ia_tags = session['foto_tags']
+    img_hash = session['foto_hash']
+    
     if request.method == 'POST':
         estado_reporte = request.form.get('estado')
         manual_lat = request.form.get('manual_lat')
@@ -392,6 +428,7 @@ def completar_reporte():
             flash("Error de sesión. Por favor, sube la foto de nuevo.", "error")
             session.pop('foto_pendiente', None)
             session.pop('foto_tags', None)
+            session.pop('foto_hash', None)
             return redirect(url_for('index'))
         
         exif_lat, exif_lng, exif_fecha, exif_modelo = None, None, None, None
@@ -406,6 +443,7 @@ def completar_reporte():
         
         nuevo_reporte = Reporte(
             user_id=current_user.id,
+            imagen_hash=img_hash, # ¡Guardamos la huella digital!
             estado=estado_reporte,
             latitud=final_lat,
             longitud=final_lng,
@@ -422,8 +460,11 @@ def completar_reporte():
         )
         db.session.add(nuevo_reporte)
         db.session.commit()
+        
         session.pop('foto_pendiente', None)
         session.pop('foto_tags', None)
+        session.pop('foto_hash', None)
+                
         flash(f"¡Reporte #{nuevo_reporte.id} ('{nuevo_reporte.estado}') creado con éxito!", "success")
         return redirect(url_for('index', new_report_id=nuevo_reporte.id))
     
