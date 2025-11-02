@@ -13,13 +13,18 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import imagehash 
-from flask_recaptcha import ReCaptcha 
+# --- ¡NUEVAS IMPORTACIONES DE SEGURIDAD! ---
+from flask_wtf import FlaskForm, CSRFProtect
+from flask_wtf.file import FileField, FileRequired
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import DataRequired, Email
+from flask_wtf.recaptcha import RecaptchaField # ¡Importamos el campo reCAPTCHA!
 
 load_dotenv()
 
-# --- Configuración (sin cambios) ---
+# --- Configuración (MODIFICADA) ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'mi-clave-secreta-de-desarrollo-12345'
+app.config['SECRET_KEY'] = 'mi-clave-secreta-de-desarrollo-12345' # Flask-WTF usa esto para CSRF
 UPLOAD_FOLDER = 'uploads' 
 STATIC_UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'uploads') 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -27,19 +32,20 @@ os.makedirs(STATIC_UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///reportes.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Llaves de Google OAuth
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID')
 app.config['GOOGLE_CLIENT_SECRET'] = os.environ.get('GOOGLE_CLIENT_SECRET')
 
-# --- Configuración de reCAPTCHA (sin cambios) ---
-app.config['RECAPTCHA_SITE_KEY'] = os.environ.get('RECAPTCHA_SITE_KEY')
-app.config['RECAPTCHA_SECRET_KEY'] = os.environ.get('RECAPTCHA_SECRET_KEY')
-app.config['RECAPTCHA_USE_SSL'] = False 
-recaptcha = ReCaptcha(app) # Inicializa reCAPTCHA
+# --- ¡NUEVA! Configuración de reCAPTCHA para Flask-WTF ---
+app.config['RECAPTCHA_PUBLIC_KEY'] = os.environ.get('RECAPTCHA_PUBLIC_KEY')
+app.config['RECAPTCHA_PRIVATE_KEY'] = os.environ.get('RECAPTCHA_PRIVATE_KEY')
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 oauth = OAuth(app) 
+csrf = CSRFProtect(app) # ¡Inicializa la protección CSRF!
 
 try:
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
@@ -89,6 +95,25 @@ class Reporte(db.Model):
     ia_collar = db.Column(db.String(50), nullable=True)
     ia_fuente = db.Column(db.String(50), nullable=True, default="N/A")
 
+# --- ¡NUEVAS CLASES DE FORMULARIO (Flask-WTF)! ---
+class RegisterForm(FlaskForm):
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Contraseña', validators=[DataRequired()])
+    recaptcha = RecaptchaField() # ¡El campo reCAPTCHA!
+    submit = SubmitField('Crear Cuenta')
+
+class LoginForm(FlaskForm):
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Contraseña', validators=[DataRequired()])
+    recaptcha = RecaptchaField() # ¡El campo reCAPTCHA!
+    submit = SubmitField('Entrar')
+
+class ValidarFotoForm(FlaskForm):
+    # ¡Protegemos también la subida de fotos!
+    foto = FileField('Foto', validators=[FileRequired()])
+    recaptcha = RecaptchaField()
+    submit = SubmitField('Siguiente: Validar Foto')
+
 # --- Funciones de Login (sin cambios) ---
 @login_manager.user_loader
 def load_user(user_id):
@@ -102,48 +127,48 @@ login_manager.login_message = 'Debes iniciar sesión para completar tu reporte.'
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
-    if request.method == 'POST':
-        if recaptcha.verify():
-            email = request.form.get('email')
-            password = request.form.get('password')
-            existing_user = User.query.filter_by(email=email).first()
-            if existing_user:
-                flash('Ese email ya está registrado. Por favor, inicia sesión.', 'error')
-                return redirect(url_for('login'))
-            hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-            new_user = User(email=email, password_hash=hashed_password)
-            db.session.add(new_user)
-            db.session.commit()
-            login_user(new_user)
-            flash('¡Cuenta creada con éxito! Ahora puedes completar tu reporte.', 'success')
-            return redirect(url_for('completar_reporte'))
-        else:
-            flash('Error de reCAPTCHA. ¿Eres un robot?', 'error')
     
-    # --- ¡ARREGLO! Pasamos 'recaptcha' al template ---
-    return render_template('register.html', recaptcha=recaptcha)
+    form = RegisterForm() # Usamos la nueva clase de formulario
+    
+    if form.validate_on_submit():
+        # ¡validate_on_submit() comprueba el reCAPTCHA y CSRF automáticamente!
+        email = form.email.data
+        password = form.password.data
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            flash('Ese email ya está registrado. Por favor, inicia sesión.', 'error')
+            return redirect(url_for('login'))
+        hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+        new_user = User(email=email, password_hash=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        login_user(new_user)
+        flash('¡Cuenta creada con éxito! Ahora puedes completar tu reporte.', 'success')
+        return redirect(url_for('completar_reporte'))
+    
+    return render_template('register.html', form=form)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
-    if request.method == 'POST':
-        if recaptcha.verify():
-            email = request.form.get('email')
-            password = request.form.get('password')
-            user = User.query.filter_by(email=email).first()
-            if user and user.password_hash and bcrypt.check_password_hash(user.password_hash, password):
-                login_user(user)
-                flash('¡Inicio de sesión exitoso!', 'success')
-                next_page = request.args.get('next')
-                return redirect(next_page or url_for('index'))
-            else:
-                flash('Error al iniciar sesión. Verifica tu email y contraseña.', 'error')
+    
+    form = LoginForm() # Usamos la nueva clase de formulario
+
+    if form.validate_on_submit():
+        # ¡Validación automática!
+        email = form.email.data
+        password = form.password.data
+        user = User.query.filter_by(email=email).first()
+        if user and user.password_hash and bcrypt.check_password_hash(user.password_hash, password):
+            login_user(user)
+            flash('¡Inicio de sesión exitoso!', 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
         else:
-            flash('Error de reCAPTCHA. ¿Eres un robot?', 'error')
+            flash('Error al iniciar sesión. Verifica tu email y contraseña.', 'error')
             
-    # --- ¡ARREGLO! Pasamos 'recaptcha' al template ---
-    return render_template('login.html', recaptcha=recaptcha)
+    return render_template('login.html', form=form)
 
 @app.route('/logout')
 @login_required
@@ -288,31 +313,29 @@ def index():
         if reporte_creado:
             posibles_coincidencias = buscar_coincidencias(reporte_creado)
     
-    # --- ¡ARREGLO! Pasamos 'recaptcha' al template ---
+    # ¡NUEVO! Creamos el formulario de subida de foto
+    form = ValidarFotoForm() 
+    
     return render_template(
         'index.html', 
         posibles_coincidencias=posibles_coincidencias, 
         reporte_creado=reporte_creado,
-        recaptcha=recaptcha # Necesario para /validar-foto
+        form=form # Pasamos el formulario al template
     )
 
 @app.route('/historial')
 @login_required 
 def historial():
     reportes = Reporte.query.filter_by(user_id=current_user.id).order_by(Reporte.fecha_reporte.desc()).all()
-    # --- ¡ARREGLO! Pasamos 'recaptcha' al template ---
-    return render_template('historial.html', reportes=reportes, recaptcha=recaptcha)
+    return render_template('historial.html', reportes=reportes)
 
-# --- Ruta Pública /explorar (¡MODIFICADA!) ---
 @app.route('/explorar')
 def explorar():
     page = request.args.get('page', 1, type=int)
     reportes_paginados = Reporte.query.filter_by(esta_resuelto=False).order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
     )
-    # --- ¡ARREGLO! Pasamos 'recaptcha' al template ---
-    return render_template('explorar.html', reportes=reportes_paginados, recaptcha=recaptcha)
-
+    return render_template('explorar.html', reportes=reportes_paginados)
 
 # --- API /cargar-mas (sin cambios) ---
 @app.route('/cargar-mas/<int:page>')
@@ -323,6 +346,7 @@ def cargar_mas(page):
     reportes_json = []
     for reporte in reportes.items:
         reporte_data = {
+            # ... (datos de json iguales que antes)
             "id": reporte.id, "estado": reporte.estado, "descripcion": reporte.descripcion or 'Sin descripción.',
             "imagen_url": url_for('static', filename='uploads/' + reporte.imagen_url) if reporte.imagen_url else None,
             "ia_especie": reporte.ia_especie or 'N/A', "ia_raza": reporte.ia_raza or 'N/A',
@@ -341,54 +365,49 @@ def cargar_mas(page):
 # --- Ruta /validar-foto (¡MODIFICADA!) ---
 @app.route('/validar-foto', methods=['POST'])
 def validar_foto():
-    # --- ¡NUEVO! Validar reCAPTCHA v3 ---
-    if not recaptcha.verify():
-        flash("Error de reCAPTCHA. ¿Eres un robot?", "error")
-        return redirect(url_for('index'))
+    form = ValidarFotoForm()
     
-    if 'foto' not in request.files:
-        flash('No se seleccionó ningún archivo.', 'error')
-        return redirect(url_for('index'))
-    archivo = request.files['foto']
-    if archivo.filename == '':
-        flash('No se seleccionó ningún archivo.', 'error')
-        return redirect(url_for('index'))
-
-    # (El resto de la lógica de IA y Hashing es la misma)
-    ext = os.path.splitext(archivo.filename)[1]
-    unique_name = str(uuid.uuid4()) + ext
-    temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-    archivo.save(temp_filepath)
-    print(f"Validando foto: {temp_filepath}")
-    ia_tags = analizar_foto_con_ia(temp_filepath)
-    es_mascota_valida = ia_tags.get('es_mascota') == 'Si'
-    if es_mascota_valida:
-        print("Foto aprobada por IA. Generando huella digital...")
-        try:
-            img_hash = str(imagehash.average_hash(Image.open(temp_filepath)))
-            reporte_existente = Reporte.query.filter_by(imagen_hash=img_hash).first()
-            if reporte_existente:
-                print(f"Foto duplicada. Coincide con el Reporte ID: {reporte_existente.id}")
+    if form.validate_on_submit(): # ¡Flask-WTF valida la foto Y el reCAPTCHA!
+        archivo = form.foto.data
+        
+        ext = os.path.splitext(archivo.filename)[1]
+        unique_name = str(uuid.uuid4()) + ext
+        temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+        archivo.save(temp_filepath)
+        print(f"Validando foto: {temp_filepath}")
+        ia_tags = analizar_foto_con_ia(temp_filepath)
+        es_mascota_valida = ia_tags.get('es_mascota') == 'Si'
+        if es_mascota_valida:
+            print("Foto aprobada por IA. Generando huella digital...")
+            try:
+                img_hash = str(imagehash.average_hash(Image.open(temp_filepath)))
+                reporte_existente = Reporte.query.filter_by(imagen_hash=img_hash).first()
+                if reporte_existente:
+                    print(f"Foto duplicada. Coincide con el Reporte ID: {reporte_existente.id}")
+                    os.remove(temp_filepath)
+                    flash(f"Error: Esta foto ya fue subida en el Reporte ID #{reporte_existente.id}.", "error")
+                    return redirect(url_for('index'))
+                print("Foto única. Pidiendo login.")
+                session['foto_pendiente'] = unique_name
+                session['foto_tags'] = ia_tags
+                session['foto_hash'] = img_hash
+                return redirect(url_for('completar_reporte'))
+            except Exception as e:
+                print(f"Error generando el hash o validando: {e}")
                 os.remove(temp_filepath)
-                flash(f"Error: Esta foto ya fue subida en el Reporte ID #{reporte_existente.id}.", "error")
+                flash("Error al procesar la imagen. Inténtalo de nuevo.", "error")
                 return redirect(url_for('index'))
-            print("Foto única. Pidiendo login.")
-            session['foto_pendiente'] = unique_name
-            session['foto_tags'] = ia_tags
-            session['foto_hash'] = img_hash
-            return redirect(url_for('completar_reporte'))
-        except Exception as e:
-            print(f"Error generando el hash o validando: {e}")
+        else:
+            print("Foto rechazada por IA. Borrando.")
             os.remove(temp_filepath)
-            flash("Error al procesar la imagen. Inténtalo de nuevo.", "error")
+            flash('Error: La foto fue rechazada. Asegúrate de que sea una foto "amateur" de una mascota (no un comercial, dibujo o meme).', 'error')
             return redirect(url_for('index'))
     else:
-        print("Foto rechazada por IA. Borrando.")
-        os.remove(temp_filepath)
-        flash('Error: La foto fue rechazada. Asegúrate de que sea una foto "amateur" de una mascota (no un comercial, dibujo o meme).', 'error')
+        # Si el formulario (o reCAPTCHA) falla
+        flash('Error de reCAPTCHA. ¿Eres un robot?', 'error')
         return redirect(url_for('index'))
 
-# --- Ruta /completar-reporte (¡MODIFICADA!) ---
+# --- Ruta /completar-reporte (sin cambios) ---
 @app.route('/completar-reporte', methods=['GET', 'POST'])
 @login_required 
 def completar_reporte():
@@ -455,15 +474,9 @@ def completar_reporte():
         flash(f"¡Reporte #{nuevo_reporte.id} ('{nuevo_reporte.estado}') creado con éxito!", "success")
         return redirect(url_for('index', new_report_id=nuevo_reporte.id))
     
-    # --- ¡ARREGLO! Pasamos 'recaptcha' al template ---
-    return render_template(
-        'completar_reporte.html', 
-        foto_url=session['foto_pendiente'], 
-        ia_tags=ia_tags,
-        recaptcha=recaptcha
-    )
+    return render_template('completar_reporte.html', foto_url=session['foto_pendiente'], ia_tags=ia_tags)
 
-# --- ¡NUEVAS RUTAS DE GESTIÓN DE REPORTES! ---
+# --- Rutas de Gestión (sin cambios) ---
 @app.route('/reporte/resolver/<int:reporte_id>', methods=['POST'])
 @login_required
 def resolver_reporte(reporte_id):
