@@ -8,6 +8,8 @@
     </h1>
     
     <form method="POST" action="/register" class="space-y-6">
+        {{ recaptcha.get_code() }}
+
         <div>
             <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
             <input type="email" name="email" id="email" required

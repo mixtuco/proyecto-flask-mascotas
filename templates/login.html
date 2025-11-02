@@ -26,6 +26,8 @@
     </div>
 
     <form method="POST" action="/login" class="space-y-6">
+        {{ recaptcha.get_code() }}
+        
         <div>
             <label for="email" class="block text-sm font-medium text-gray-700">Email</oabel>
             <input type="email" name="email" id="email" required
