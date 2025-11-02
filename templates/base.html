@@ -41,11 +41,15 @@
                 <a href="/" class="text-2xl font-bold text-blue-600">App Mascotas</a>
                 
                 <div class="flex items-center space-x-4">
+                    <a href="/explorar" class="text-gray-600 font-medium hover:text-blue-600">Explorar Reportes</a>
+                    
                     {% if current_user.is_authenticated %}
+                        <span class="text-gray-700">|</span>
                         <span class="text-gray-700">Hola, {{ current_user.email }}</span>
                         <a href="/historial" class="text-gray-600 hover:text-blue-600">Mi Historial</a>
                         <a href="/logout" class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600">Logout</a>
                     {% else %}
+                        <span class="text-gray-700">|</span>
                         <a href="/login" class="text-gray-600 hover:text-blue-600">Login</a>
                         <a href="/register" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Registrarse</a>
                     {% endif %}
@@ -53,9 +57,7 @@
             </div>
         </div>
     </nav>
-
     <div class="container mx-auto max-w-4xl p-4 sm:p-8">
-
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 <div class="mb-8">
@@ -70,13 +72,10 @@
                 </div>
             {% endif %}
         {% endwith %}
-    
         {% block content %}{% endblock %}
-    
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
     {% block scripts %}{% endblock %}
 
 </body>

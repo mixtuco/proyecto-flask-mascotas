@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Explorar Reportes - App Mascotas{% endblock %}
+
+{% block content %}
+
+    <h1 class="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500 mb-10 pb-2">
+        Explorar Reportes
+    </h1>
+
+    <div id="reportes-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+        {% for reporte in reportes.items %}
+            
+            <div class="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col
+                        {% if reporte.estado == 'Perdido' %} border-t-8 border-red-500 {% else %} border-t-8 border-green-500 {% endif %}">
+                
+                {% if reporte.imagen_url %}
+                    <img src="{{ url_for('static', filename='uploads/' + reporte.imagen_url) }}" 
+                         alt="Foto de {{ reporte.ia_especie or 'mascota' }}"
+                         class="w-full h-48 object-cover">
+                {% else %}
+                    <div class="w-full h-48 bg-gray-200 flex items-center justify-center">
+                        <span class="text-gray-500">(Sin foto aprobada)</span>
+                    </div>
+                {% endif %}
+                
+                <div class="p-6 flex-grow">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xl font-bold
+                            {% if reporte.estado == 'Perdido' %} text-red-600 {% else %} text-green-600 {% endif %}">
+                            {{ reporte.estado }}
+                        </span>
+                        <span class="text-sm font-medium text-gray-500">ID: {{ reporte.id }}</span>
+                    </div>
+                    <p class="text-gray-700 mb-4 h-24 overflow-y-auto">
+                        {{ reporte.descripcion or 'Sin descripción.' }}
+                    </p>
+                    <div class="mb-4">
+                        <span class="ia-tag">{{ reporte.ia_especie or 'N/A' }}</span>
+                        <span class="ia-tag">{{ reporte.ia_raza or 'N/A' }}</span>
+                        <span class="ia-tag">{{ reporte.ia_color_principal or 'N/A' }}</span>
+                        <span class="ia-tag">{{ reporte.ia_collar or 'N/A' }}</span>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 p-6 border-t border-gray-100">
+                    <div class="text-sm text-gray-600">
+                        <strong>Ubicación (aprox):</strong>
+                        {% if reporte.latitud and reporte.longitud %}
+                            <span class="font-mono text-xs">{{ reporte.latitud }}, {{ reporte.longitud }}</span>
+                        {% else %}
+                            <span class="text-gray-400">N/A</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+        
+        {% if not reportes.items %}
+            <p class="text-gray-500 col-span-3 text-center text-lg">Aún no hay reportes en la base de datos.</p>
+        {% endif %}
+        
+    </div> <div class="mt-12 text-center">
+        {% if reportes.has_next %}
+            <button id="load-more-btn" 
+                    data-page="{{ reportes.next_num }}"
+                    class="px-8 py-3 bg-blue-600 text-white text-lg font-bold rounded-lg shadow-lg
+                           hover:bg-blue-700 transition-all duration-300 ease-in-out">
+                Cargar Más Reportes
+            </button>
+        {% endif %}
+    </div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    // 1. Encontrar el botón y el grid
+    const loadMoreBtn = document.getElementById('load-more-btn');
+    const reportesGrid = document.getElementById('reportes-grid');
+
+    if (loadMoreBtn) {
+        // 2. Escuchar el clic
+        loadMoreBtn.addEventListener('click', async function() {
+            // Obtenemos el número de la página que queremos cargar
+            let nextPage = this.dataset.page;
+            
+            // Mostramos "Cargando..."
+            this.disabled = true;
+            this.innerText = "Cargando...";
+
+            try {
+                // 3. Llamar a nuestra nueva API
+                const response = await fetch(`/cargar-mas/${nextPage}`);
+                const data = await response.json();
+                
+                // 4. Construir el HTML para cada nuevo reporte
+                data.reportes.forEach(reporte => {
+                    const cardHtml = `
+                        <div class="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col
+                            ${ reporte.estado == 'Perdido' ? 'border-t-8 border-red-500' : 'border-t-8 border-green-500' }">
+                            
+                            ${ reporte.imagen_url ?
+                                `<img src="${reporte.imagen_url}" alt="Foto de ${reporte.ia_especie}" class="w-full h-48 object-cover">` :
+                                `<div class="w-full h-48 bg-gray-200 flex items-center justify-center"><span class="text-gray-500">(Sin foto aprobada)</span></div>`
+                            }
+                            
+                            <div class="p-6 flex-grow">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-xl font-bold ${ reporte.estado == 'Perdido' ? 'text-red-600' : 'text-green-600' }">
+                                        ${reporte.estado}
+                                    </span>
+                                    <span class="text-sm font-medium text-gray-500">ID: ${reporte.id}</span>
+                                </div>
+                                <p class="text-gray-700 mb-4 h-24 overflow-y-auto">
+                                    ${reporte.descripcion}
+                                </p>
+                                <div class="mb-4">
+                                    <span class="ia-tag">${reporte.ia_especie}</span>
+                                    <span class="ia-tag">${reporte.ia_raza}</span>
+                                    <span class="ia-tag">${reporte.ia_color_principal}</span>
+                                    <span class="ia-tag">${reporte.ia_collar}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 p-6 border-t border-gray-100">
+                                <div class="text-sm text-gray-600">
+                                    <strong>Ubicación (aprox):</strong>
+                                    ${ reporte.latitud ? 
+                                        `<span class="font-mono text-xs">${reporte.latitud}, ${reporte.longitud}</span>` :
+                                        `<span class="text-gray-400">N/A</span>`
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    // 5. Añadir la nueva tarjeta al grid
+                    reportesGrid.insertAdjacentHTML('beforeend', cardHtml);
+                });
+
+                // 6. Actualizar el botón
+                if (data.has_next) {
+                    // Si hay más páginas, actualizamos el número de página
+                    this.dataset.page = parseInt(nextPage) + 1;
+                    this.disabled = false;
+                    this.innerText = "Cargar Más Reportes";
+                } else {
+                    // Si no hay más, ocultamos el botón
+                    this.style.display = 'none';
+                }
+
+            } catch (error) {
+                console.error("Error al cargar más reportes:", error);
+                this.innerText = "Error. Intenta de nuevo.";
+                this.disabled = false;
+            }
+        });
+    }
+</script>
+{% endblock %}
