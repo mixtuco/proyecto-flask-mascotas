@@ -1,6 +1,8 @@
 import os
 import json
-from dotenv import load_dotenv # --- ¡NUEVA LÍNEA 1! ---
+from dotenv import load_dotenv # Carga las variables de .env
+load_dotenv()
+
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
@@ -13,8 +15,7 @@ from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from authlib.integrations.flask_client import OAuth
 
-load_dotenv() # --- ¡NUEVA LÍNEA 2! ---
-# --- Configuración (sin cambios) ---
+# --- Configuración ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'mi-clave-secreta-de-desarrollo-12345'
 UPLOAD_FOLDER = 'uploads' 
@@ -24,6 +25,7 @@ os.makedirs(STATIC_UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///reportes.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Lee las llaves desde .env (que Render lee como Variables de Entorno)
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID')
 app.config['GOOGLE_CLIENT_SECRET'] = os.environ.get('GOOGLE_CLIENT_SECRET')
 
@@ -38,7 +40,7 @@ try:
 except Exception as e:
     print(f"Error configurando la API de Google: {e}")
 
-# --- Configuración de OAuth (sin cambios) ---
+# --- Configuración de OAuth ---
 oauth.register(
     name='google',
     client_id=app.config['GOOGLE_CLIENT_ID'],
@@ -53,7 +55,7 @@ oauth.register(
     jwks_uri="https://www.googleapis.com/oauth2/v3/certs",
 )
 
-# --- Modelos de Usuario y Reporte (sin cambios) ---
+# --- Modelos de Usuario y Reporte ---
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150), unique=True, nullable=False)
@@ -78,16 +80,15 @@ class Reporte(db.Model):
     ia_collar = db.Column(db.String(50), nullable=True)
     ia_fuente = db.Column(db.String(50), nullable=True, default="N/A")
 
-# --- Funciones de Login (MODIFICADAS) ---
+# --- Funciones de Login ---
 @login_manager.user_loader
 def load_user(user_id):
-    # ¡CORRECCIÓN DE WARNING!
-    return db.session.get(User, int(user_id)) 
+    return db.session.get(User, int(user_id)) # Arreglo de LegacyWarning
 login_manager.login_view = 'login'
 login_manager.login_message_category = 'error'
 login_manager.login_message = 'Debes iniciar sesión para completar tu reporte.'
 
-# --- Rutas de Autenticación (sin cambios) ---
+# --- Rutas de Autenticación ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
@@ -122,7 +123,7 @@ def login():
             next_page = request.args.get('next')
             return redirect(next_page or url_for('index'))
         else:
-            flash('Error al iniciar sesión. Verifica tu email y contraseña. (Si te registraste con Google, usa el botón de Google).', 'error')
+            flash('Error al iniciar sesión. Verifica tu email y contraseña.', 'error')
     return render_template('login.html')
 
 @app.route('/logout')
@@ -132,7 +133,7 @@ def logout():
     flash('Has cerrado sesión.', 'success')
     return redirect(url_for('login'))
 
-# --- Rutas de Login con Google (sin cambios) ---
+# --- Rutas de Login con Google ---
 @app.route('/login/google')
 def login_google():
     redirect_uri = url_for('authorize_google', _external=True)
@@ -165,7 +166,7 @@ def authorize_google():
     else:
         return redirect(url_for('index'))
 
-# --- Funciones de IA y Distancia (sin cambios) ---
+# --- Funciones de IA y Distancia ---
 def obtener_metadatos_gps(imagen_path):
     try:
         img = Image.open(imagen_path)
@@ -266,15 +267,14 @@ def buscar_coincidencias(reporte_actual):
     coincidencias.sort(key=lambda x: x[1])
     return coincidencias
 
-# --- Rutas de Página (MODIFICADAS) ---
+# --- Rutas de Página ---
 @app.route('/')
 def index():
     posibles_coincidencias = []
     reporte_creado = None
     new_report_id = request.args.get('new_report_id')
     if new_report_id:
-        # ¡CORRECCIÓN DE WARNING!
-        reporte_creado = db.session.get(Reporte, new_report_id) 
+        reporte_creado = db.session.get(Reporte, new_report_id) # Arreglo de LegacyWarning
         if reporte_creado:
             posibles_coincidencias = buscar_coincidencias(reporte_creado)
     return render_template(
@@ -289,7 +289,7 @@ def historial():
     reportes = Reporte.query.filter_by(user_id=current_user.id).order_by(Reporte.fecha_reporte.desc()).all()
     return render_template('historial.html', reportes=reportes)
 
-# --- Ruta /validar-foto (sin cambios) ---
+# --- Rutas del Embudo ---
 @app.route('/validar-foto', methods=['POST'])
 def validar_foto():
     if 'foto' not in request.files:
@@ -317,17 +317,14 @@ def validar_foto():
         flash('Error: La foto fue rechazada. Asegúrate de que sea una foto "amateur" de una mascota (no un comercial, dibujo o meme).', 'error')
         return redirect(url_for('index'))
 
-# --- Ruta /completar-reporte (MODIFICADA) ---
 @app.route('/completar-reporte', methods=['GET', 'POST'])
 @login_required 
 def completar_reporte():
     if 'foto_pendiente' not in session or 'foto_tags' not in session:
         flash('Error: Debes subir una foto primero.', 'error')
         return redirect(url_for('index'))
-    
     temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], session['foto_pendiente'])
     ia_tags = session['foto_tags']
-    
     if request.method == 'POST':
         estado_reporte = request.form.get('estado')
         manual_lat = request.form.get('manual_lat')
@@ -336,13 +333,10 @@ def completar_reporte():
         imagen_url_final = None
         try:
             static_path = os.path.join(STATIC_UPLOAD_FOLDER, session['foto_pendiente'])
-            # Verificamos si el archivo aún existe en temporal
             if os.path.exists(temp_filepath):
                 os.rename(temp_filepath, static_path)
             elif not os.path.exists(static_path):
-                # Si no existe en NINGÚN lado (ej. refrescó la página mucho después)
                 raise Exception("Archivo temporal no encontrado")
-            
             imagen_url_final = session['foto_pendiente']
             print(f"Foto movida a: {static_path}")
         except Exception as e:
@@ -351,9 +345,6 @@ def completar_reporte():
             session.pop('foto_pendiente', None)
             session.pop('foto_tags', None)
             return redirect(url_for('index'))
-
-        # --- ¡YA NO NECESITAMOS IA DE TEXTO! ---
-        # Las etiquetas de IA ya las tenemos de la foto.
         
         exif_lat, exif_lng, exif_fecha, exif_modelo = None, None, None, None
         resultados_exif = obtener_metadatos_gps(static_path)
@@ -393,3 +384,6 @@ def completar_reporte():
 # --- Código para crear la BBDD ---
 with app.app_context():
     db.create_all()
+
+# --- Punto de entrada (para Render) ---
+# No incluimos app.run() aquí, Gunicorn se encarga.

@@ -29,6 +29,8 @@
             </button>
         </div>
     </form>
+
+
     {% if reporte_creado %}
         <div class="mb-12">
             <h2 class="text-3xl font-bold text-gray-900 mb-4">
@@ -40,7 +42,23 @@
                 </h3>
                 {% for reporte, distancia in posibles_coincidencias %}
                 <div class="match-card">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xl font-bold
+                            {% if reporte.estado == 'Perdido' %} text-red-600 {% else %} text-green-600 {% endif %}">
+                            {{ reporte.estado }} (ID: {{ reporte.id }})
+                        </span>
+                        <span class="font-bold text-blue-600 text-lg">
+                            Aprox. {{ distancia }} km de distancia
+                        </span>
                     </div>
+                    <p class="text-gray-700 mb-4">{{ reporte.descripcion or 'Sin descripción.' }}</p>
+                    <div>
+                        <span class="ia-tag">{{ reporte.ia_especie or 'N/A' }}</span>
+                        <span class="ia-tag">{{ reporte.ia_raza or 'N/A' }}</span>
+                        <span class="ia-tag">{{ reporte.ia_color_principal or 'N/A' }}</span>
+                        <span class="ia-tag">{{ reporte.ia_collar or 'N/A' }}</span>
+                    </div>
+                </div>
                 {% endfor %}
             {% else %}
                 <h3 class="text-2xl font-semibold text-gray-700 mb-4">
@@ -57,3 +75,5 @@
     </div>
     
 {% endblock %}
+
+{% block scripts %}{% endblock %}
