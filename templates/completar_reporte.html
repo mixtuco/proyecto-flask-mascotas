@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Completar Reporte - App Mascotas{% endblock %}
+
+{% block content %}
+
+    <h1 class="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500 mb-6 pb-2">
+        Paso 2: Completa los Detalles
+    </h1>
+    
+    <p class="text-xl text-gray-700 mb-10">¡Foto aprobada! Ahora completa la información de tu reporte.</p>
+    
+    <form action="/completar-reporte" method="POST" enctype="multipart/form-data" 
+          class="bg-white p-6 sm:p-8 rounded-2xl shadow-xl mb-12 space-y-8">
+
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-3">Tu Foto Aprobada</h2>
+            <img src="{{ url_for('static', filename='uploads/' + foto_url) }}" 
+                 alt="Foto pendiente de aprobación"
+                 class="rounded-xl shadow-lg max-h-64 mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">Etiquetas de la IA:</h3>
+            <div>
+                <span class="ia-tag">{{ ia_tags.especie or 'N/A' }}</span>
+                <span class="ia-tag">{{ ia_tags.raza_aproximada or 'N/A' }}</span>
+                <span class="ia-tag">{{ ia_tags.color_principal or 'N/A' }}</span>
+                <span class="ia-tag">{{ ia_tags.collar or 'N/A' }}</span>
+            </div>
+        </div>
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-3">Estoy reportando...</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <input type="radio" name="estado" id="estado_encontrado" value="Encontrado" checked class="hidden">
+                    <label for="estado_encontrado" class="radio-label">
+                        <span class="text-xl font-bold text-gray-900">Una Mascota Encontrada</span>
+                        <p class="text-gray-600 text-sm">Vi o rescaté una mascota que parece perdida.</p>
+                    </label>
+                </div>
+                <div>
+                    <input type="radio" name="estado" id="estado_perdido" value="Perdido" class="hidden">
+                    <label for="estado_perdido" class="radio-label">
+                        <span class="text-xl font-bold text-gray-900">Una Mascota Perdida</span>
+                        <p class="text-gray-600 text-sm">Estoy buscando a mi mascota.</p>
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-3">Marca la ubicación</h2>
+            <p class="text-gray-600 mb-4">(Dónde la encontraste / Dónde la viste por última vez)</p>
+            <button type="button" id="geo-button" 
+                    class="mb-4 w-full sm:w-auto px-5 py-2 bg-blue-100 text-blue-700 font-semibold rounded-lg shadow-sm 
+                           hover:bg-blue-200 transition-colors flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                Usar mi ubicación actual
+            </button>
+            <div id="map" class="w-full rounded-2xl overflow-hidden border-2 border-gray-200 shadow-xl"></div>
+            <input type="hidden" id="manual_lat" name="manual_lat">
+            <input type="hidden" id="manual_lng" name="manual_lng">
+        </div>
+        
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900 mb-3">Añade una descripción</h2>
+            <p class="text-gray-600 mb-4">Añade cualquier detalle extra que la IA no haya visto.</p>
+            <textarea id="descripcion" name="descripcion" rows="5" 
+                      placeholder="Ej: Tiene una cicatriz en la oreja izquierda. Responde al nombre de 'Max'. Es muy miedoso."
+                      class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200 text-base"
+            ></textarea>
+        </div>
+        
+        <div>
+            <button type="submit"
+                    class="w-full bg-blue-600 text-white text-lg font-bold py-4 px-6 rounded-lg shadow-lg
+                           hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50
+                           transform hover:scale-105 transition-all duration-300 ease-in-out">
+                Publicar Reporte
+            </button>
+        </div>
+    </form>
+    
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+    var map = L.map('map').setView([-33.45, -70.66], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    }).addTo(map);
+    var marker = null;
+    map.on('click', function(e) {
+        var lat = e.latlng.lat;
+        var lng = e.latlng.lng;
+        document.getElementById('manual_lat').value = lat;
+        document.getElementById('manual_lng').value = lng;
+        if (marker) {
+            marker.setLatLng(e.latlng);
+        } else {
+            marker = L.marker(e.latlng).addTo(map);
+        }
+        marker.bindPopup("Ubicación seleccionada").openPopup();
+    });
+    
+    const geoButton = document.getElementById('geo-button');
+    geoButton.addEventListener('click', function() {
+        if ('geolocation' in navigator) {
+            geoButton.innerText = "Obteniendo...";
+            navigator.geolocation.getCurrentPosition(onSuccess, onError);
+        } else {
+            alert("Tu navegador no soporta la Geolocalización.");
+        }
+    });
+    function onSuccess(position) {
+        geoButton.innerText = "¡Ubicación Obtenida!";
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        document.getElementById('manual_lat').value = lat;
+        document.getElementById('manual_lng').value = lng;
+        map.setView([lat, lng], 16);
+        if (marker) {
+            marker.setLatLng([lat, lng]);
+        } else {
+            marker = L.marker([lat, lng]).addTo(map);
+        }
+        marker.bindPopup("Tu ubicación actual (aprox.)").openPopup();
+        setTimeout(() => { geoButton.innerText = "Usar mi ubicación actual"; }, 2000);
+    }
+    function onError(error) {
+        geoButton.innerText = "Error al obtener ubicación";
+        console.error("Error de Geolocalización: ", error.message);
+        alert("No se pudo obtener tu ubicación. Asegúrate de dar permiso en el navegador o márcala manualmente en el mapa.");
+        setTimeout(() => { geoButton.innerText = "Usar mi ubicación actual"; }, 2000);
+    }
+</script>
+{% endblock %}
