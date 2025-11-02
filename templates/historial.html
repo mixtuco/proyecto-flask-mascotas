@@ -12,7 +12,13 @@
         {% for reporte in reportes %}
         
         <div class="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col
-                    {% if reporte.estado == 'Perdido' %} border-t-8 border-red-500 {% else %} border-t-8 border-green-500 {% endif %}">
+                    {% if reporte.esta_resuelto %} 
+                        opacity-60 border-t-8 border-gray-400
+                    {% elif reporte.estado == 'Perdido' %} 
+                        border-t-8 border-red-500 
+                    {% else %} 
+                        border-t-8 border-green-500 
+                    {% endif %}">
             
             {% if reporte.imagen_url %}
                 <img src="{{ url_for('static', filename='uploads/' + reporte.imagen_url) }}" 
@@ -26,10 +32,16 @@
             
             <div class="p-6 flex-grow">
                 <div class="flex justify-between items-center mb-2">
-                    <span class="text-xl font-bold
-                        {% if reporte.estado == 'Perdido' %} text-red-600 {% else %} text-green-600 {% endif %}">
-                        {{ reporte.estado }}
-                    </span>
+                    {% if reporte.esta_resuelto %}
+                        <span class="text-xl font-bold text-gray-500">
+                            Resuelto
+                        </span>
+                    {% else %}
+                        <span class="text-xl font-bold
+                            {% if reporte.estado == 'Perdido' %} text-red-600 {% else %} text-green-600 {% endif %}">
+                            {{ reporte.estado }}
+                        </span>
+                    {% endif %}
                     <span class="text-sm font-medium text-gray-500">ID: {{ reporte.id }}</span>
                 </div>
 
@@ -42,12 +54,6 @@
                     <span class="ia-tag">{{ reporte.ia_raza or 'N/A' }}</span>
                     <span class="ia-tag">{{ reporte.ia_color_principal or 'N/A' }}</span>
                     <span class="ia-tag">{{ reporte.ia_collar or 'N/A' }}</span>
-                    <br>
-                    <span class="text-xs font-medium mt-2 
-                        {% if reporte.ia_fuente == 'Foto+Texto' %} fuente-foto 
-                        {% else %} fuente-texto {% endif %}">
-                        (Fuente: {{ reporte.ia_fuente or 'N/A' }})
-                    </span>
                 </div>
             </div>
             
@@ -60,13 +66,29 @@
                         <span class="text-gray-400">N/A</span>
                     {% endif %}
                 </div>
-                <div class="text-sm text-gray-600 mt-2">
-                    <strong>Datos Foto:</strong> {{ reporte.fecha_foto or 'N/A' }} 
-                    <span class="text-gray-400">{{ reporte.modelo_celular or '' }}</span>
+                
+                <div class="mt-4 pt-4 border-t border-gray-200 flex space-x-2">
+                    <form action="{{ url_for('resolver_reporte', reporte_id=reporte.id) }}" method="POST" class="flex-1">
+                        <button type="submit" 
+                                class="w-full text-center px-4 py-2 rounded-lg font-semibold text-sm
+                                {% if reporte.esta_resuelto %}
+                                    bg-gray-200 text-gray-800 hover:bg-gray-300
+                                {% else %}
+                                    bg-green-100 text-green-800 hover:bg-green-200
+                                {% endif %}">
+                            {% if reporte.esta_resuelto %} Reactivar {% else %} Resuelto {% endif %}
+                        </button>
+                    </form>
+                    
+                    <form action="{{ url_for('eliminar_reporte', reporte_id=reporte.id) }}" method="POST"
+                          onsubmit="return confirm('¿Estás seguro de que quieres eliminar este reporte? Esta acción no se puede deshacer.');">
+                        <button type="submit"
+                                class="w-full text-center px-4 py-2 bg-red-100 text-red-800 hover:bg-red-200 rounded-lg font-semibold text-sm">
+                            Eliminar
+                        </button>
+                    </form>
                 </div>
-                <div class="text-sm text-gray-400 mt-2 truncate" title="{{ reporte.imagen_hash }}">
-                    <strong>Hash:</strong> {{ reporte.imagen_hash or 'N/A' }}
-                </div>
+
             </div>
         </div>
         {% endfor %}
