@@ -13,18 +13,17 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import imagehash 
-# --- ¡NUEVAS IMPORTACIONES DE SEGURIDAD! ---
 from flask_wtf import FlaskForm, CSRFProtect
 from flask_wtf.file import FileField, FileRequired
 from wtforms import StringField, PasswordField, SubmitField
 from wtforms.validators import DataRequired, Email
-from flask_wtf.recaptcha import RecaptchaField # ¡Importamos el campo reCAPTCHA!
+from flask_wtf.recaptcha import RecaptchaField
 
 load_dotenv()
 
 # --- Configuración (MODIFICADA) ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'mi-clave-secreta-de-desarrollo-12345' # Flask-WTF usa esto para CSRF
+app.config['SECRET_KEY'] = 'mi-clave-secreta-de-desarrollo-12345'
 UPLOAD_FOLDER = 'uploads' 
 STATIC_UPLOAD_FOLDER = os.path.join(app.root_path, 'static', 'uploads') 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -37,15 +36,19 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID')
 app.config['GOOGLE_CLIENT_SECRET'] = os.environ.get('GOOGLE_CLIENT_SECRET')
 
-# --- ¡NUEVA! Configuración de reCAPTCHA para Flask-WTF ---
+# Configuración de reCAPTCHA para Flask-WTF
 app.config['RECAPTCHA_PUBLIC_KEY'] = os.environ.get('RECAPTCHA_PUBLIC_KEY')
 app.config['RECAPTCHA_PRIVATE_KEY'] = os.environ.get('RECAPTCHA_PRIVATE_KEY')
+
+# --- ★★★ ¡AQUÍ ESTÁ EL ARREGLO! ★★★ ---
+# Le decimos a Flask-WTF que use reCAPTCHA v3 (invisible)
+app.config['RECAPTCHA_VERSION'] = 3
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 oauth = OAuth(app) 
-csrf = CSRFProtect(app) # ¡Inicializa la protección CSRF!
+csrf = CSRFProtect(app)
 
 try:
     GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
@@ -95,21 +98,20 @@ class Reporte(db.Model):
     ia_collar = db.Column(db.String(50), nullable=True)
     ia_fuente = db.Column(db.String(50), nullable=True, default="N/A")
 
-# --- ¡NUEVAS CLASES DE FORMULARIO (Flask-WTF)! ---
+# --- Clases de Formulario (sin cambios) ---
 class RegisterForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Contraseña', validators=[DataRequired()])
-    recaptcha = RecaptchaField() # ¡El campo reCAPTCHA!
+    recaptcha = RecaptchaField()
     submit = SubmitField('Crear Cuenta')
 
 class LoginForm(FlaskForm):
     email = StringField('Email', validators=[DataRequired(), Email()])
     password = PasswordField('Contraseña', validators=[DataRequired()])
-    recaptcha = RecaptchaField() # ¡El campo reCAPTCHA!
+    recaptcha = RecaptchaField()
     submit = SubmitField('Entrar')
 
 class ValidarFotoForm(FlaskForm):
-    # ¡Protegemos también la subida de fotos!
     foto = FileField('Foto', validators=[FileRequired()])
     recaptcha = RecaptchaField()
     submit = SubmitField('Siguiente: Validar Foto')
@@ -122,16 +124,13 @@ login_manager.login_view = 'login'
 login_manager.login_message_category = 'error'
 login_manager.login_message = 'Debes iniciar sesión para completar tu reporte.'
 
-# --- Rutas de Autenticación (¡MODIFICADAS!) ---
+# --- Rutas de Autenticación (sin cambios) ---
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
-    
-    form = RegisterForm() # Usamos la nueva clase de formulario
-    
+    form = RegisterForm()
     if form.validate_on_submit():
-        # ¡validate_on_submit() comprueba el reCAPTCHA y CSRF automáticamente!
         email = form.email.data
         password = form.password.data
         existing_user = User.query.filter_by(email=email).first()
@@ -145,18 +144,14 @@ def register():
         login_user(new_user)
         flash('¡Cuenta creada con éxito! Ahora puedes completar tu reporte.', 'success')
         return redirect(url_for('completar_reporte'))
-    
     return render_template('register.html', form=form)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
-    
-    form = LoginForm() # Usamos la nueva clase de formulario
-
+    form = LoginForm()
     if form.validate_on_submit():
-        # ¡Validación automática!
         email = form.email.data
         password = form.password.data
         user = User.query.filter_by(email=email).first()
@@ -167,7 +162,6 @@ def login():
             return redirect(next_page or url_for('index'))
         else:
             flash('Error al iniciar sesión. Verifica tu email y contraseña.', 'error')
-            
     return render_template('login.html', form=form)
 
 @app.route('/logout')
@@ -302,9 +296,10 @@ def buscar_coincidencias(reporte_actual):
     coincidencias.sort(key=lambda x: x[1])
     return coincidencias
 
-# --- Rutas de Página (¡MODIFICADAS!) ---
+# --- Rutas de Página ---
 @app.route('/')
 def index():
+    # (Esta ruta sigue igual)
     posibles_coincidencias = []
     reporte_creado = None
     new_report_id = request.args.get('new_report_id')
@@ -313,24 +308,25 @@ def index():
         if reporte_creado:
             posibles_coincidencias = buscar_coincidencias(reporte_creado)
     
-    # ¡NUEVO! Creamos el formulario de subida de foto
     form = ValidarFotoForm() 
     
     return render_template(
         'index.html', 
         posibles_coincidencias=posibles_coincidencias, 
         reporte_creado=reporte_creado,
-        form=form # Pasamos el formulario al template
+        form=form
     )
 
 @app.route('/historial')
 @login_required 
 def historial():
+    # (Esta ruta sigue igual)
     reportes = Reporte.query.filter_by(user_id=current_user.id).order_by(Reporte.fecha_reporte.desc()).all()
     return render_template('historial.html', reportes=reportes)
 
 @app.route('/explorar')
 def explorar():
+    # (Esta ruta sigue igual)
     page = request.args.get('page', 1, type=int)
     reportes_paginados = Reporte.query.filter_by(esta_resuelto=False).order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
@@ -340,6 +336,7 @@ def explorar():
 # --- API /cargar-mas (sin cambios) ---
 @app.route('/cargar-mas/<int:page>')
 def cargar_mas(page):
+    # (Toda la función es igual)
     reportes = Reporte.query.filter_by(esta_resuelto=False).order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
     )
@@ -367,7 +364,8 @@ def cargar_mas(page):
 def validar_foto():
     form = ValidarFotoForm()
     
-    if form.validate_on_submit(): # ¡Flask-WTF valida la foto Y el reCAPTCHA!
+    # ¡Flask-WTF valida la foto Y el reCAPTCHA!
+    if form.validate_on_submit(): 
         archivo = form.foto.data
         
         ext = os.path.splitext(archivo.filename)[1]
@@ -404,7 +402,8 @@ def validar_foto():
             return redirect(url_for('index'))
     else:
         # Si el formulario (o reCAPTCHA) falla
-        flash('Error de reCAPTCHA. ¿Eres un robot?', 'error')
+        print("Fallo de validación de Flask-WTF (Probablemente reCAPTCHA)")
+        flash('Error de reCAPTCHA. ¿Eres un robot? Refresca la página e inténtalo de nuevo.', 'error')
         return redirect(url_for('index'))
 
 # --- Ruta /completar-reporte (sin cambios) ---
