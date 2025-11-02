@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify # --- ¡NUEVO! import jsonify ---
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 from flask_sqlalchemy import SQLAlchemy
@@ -165,7 +165,7 @@ def authorize_google():
     else:
         return redirect(url_for('index'))
 
-# --- Funciones de IA y Distancia (sin cambios) ---
+# --- Funciones de IA y Distancia (MODIFICADA) ---
 def obtener_metadatos_gps(imagen_path):
     # (Toda la función es igual)
     try:
@@ -195,36 +195,65 @@ def obtener_metadatos_gps(imagen_path):
     except Exception as e:
         return {"Error": f"No se pudo leer la imagen o los datos EXIF: {e}"}
 
+# --- ¡NUEVA FUNCIÓN DE IA ÚNICA! (Visión + Extracción) ---
 def analizar_foto_con_ia(imagen_path):
-    # (Toda la función es igual)
+    """
+    Analiza la foto para validarla Y extraer etiquetas.
+    ¡Esta es ahora la ÚNICA llamada a la IA de visión!
+    """
     if not GOOGLE_API_KEY: 
         print("API Key no encontrada.")
+        # Devolvemos un "éxito" falso para poder probar sin IA
         return {"es_mascota": "Si", "especie": "Perro (Prueba)", "raza_aproximada": "Test", "color_principal": "Test", "collar": "No se ve", "fuente": "Error API"}
+    
     try:
         model = genai.GenerativeModel('models/gemini-flash-latest') 
         img = Image.open(imagen_path)
+        
+        # --- ★★★ ¡PROMPT MODIFICADO! (Menos estricto) ★★★ ---
         prompt_parts = [
             f"""
-            (prompt de visión simplificado igual que antes)
+            Eres un asistente experto en clasificación de mascotas.
+            Tu tarea es analizar la IMAGEN y rellenar el siguiente JSON.
+
+            - es_mascota: Responde "Si" si la imagen es una foto real de una mascota (perro, gato, pájaro, conejo, etc.).
+                          Responde "No" si es un humano, un dibujo, un meme, o contenido ofensivo.
+                          ¡Sé flexible! Una foto de buena calidad de una mascota en un sofá (como la del gato blanco) es válida.
+                          Un anuncio obvio (como el del Basenji con texto) NO es válido.
+            
+            - especie: Si es_mascota es "Si", identifica la especie (ej: "Perro", "Gato", "Pájaro"). De lo contrario, "No es mascota".
+            - raza_aproximada: Si es una mascota, identifica la raza (ej: "Mestizo", "Labrador", "Siamés").
+            - color_principal: Color principal del pelaje (ej: "Negro", "Blanco", "Marrón", "Dorado").
+            - collar: ¿Se ve un collar? (ej: "Si", "No", "No se ve").
+
+            Responde ÚNICAMENTE con el formato JSON.
             Respuesta JSON:
             """,
             img 
         ]
+        
         response = model.generate_content(prompt_parts)
         response_text = response.text
+        
+        # Lógica de "caza" de JSON
         start_index = response_text.find('{')
         end_index = response_text.rfind('}')
+        
         if start_index != -1 and end_index != -1:
             json_text = response_text[start_index : end_index + 1]
             datos_json = json.loads(json_text)
         else:
             raise ValueError("No se encontró JSON en la respuesta de la IA")
+        
         datos_json["fuente"] = "Foto+Texto"
         return datos_json
+
     except Exception as e:
         print(f"Error durante el análisis de IA (Multimodal): {e}")
         return {"fuente": "Error Foto", "es_mascota": "Error"}
 
+
+# --- Función de Búsqueda (sin cambios) ---
 def haversine(lon1, lat1, lon2, lat2):
     # (Toda la función es igual)
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
@@ -280,28 +309,22 @@ def historial():
     reportes = Reporte.query.filter_by(user_id=current_user.id).order_by(Reporte.fecha_reporte.desc()).all()
     return render_template('historial.html', reportes=reportes)
 
-# --- ¡NUEVA RUTA PÚBLICA /EXPLORAR! ---
+# --- Ruta Pública /explorar (sin cambios) ---
 @app.route('/explorar')
 def explorar():
-    # Cargamos solo la Página 1, con 9 reportes por página
     page = request.args.get('page', 1, type=int)
     reportes_paginados = Reporte.query.order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
     )
-    # Pasamos el objeto 'reportes_paginados' completo al template
     return render_template('explorar.html', reportes=reportes_paginados)
 
-
-# --- ¡NUEVA RUTA DE API PARA CARGAR MÁS! ---
+# --- API /cargar-mas (sin cambios) ---
 @app.route('/cargar-mas/<int:page>')
 def cargar_mas(page):
-    # Obtenemos la siguiente página de reportes
     reportes = Reporte.query.order_by(Reporte.fecha_reporte.desc()).paginate(
         page=page, per_page=9, error_out=False
     )
-    
     reportes_json = []
-    # Convertimos los reportes a un formato JSON que JavaScript entienda
     for reporte in reportes.items:
         reporte_data = {
             "id": reporte.id,
@@ -319,12 +342,10 @@ def cargar_mas(page):
             "modelo_celular": reporte.modelo_celular or ''
         }
         reportes_json.append(reporte_data)
-        
     return jsonify(
         reportes=reportes_json,
-        has_next=reportes.has_next # Le decimos al JS si hay más páginas
+        has_next=reportes.has_next
     )
-
 
 # --- Ruta /validar-foto (sin cambios) ---
 @app.route('/validar-foto', methods=['POST'])
